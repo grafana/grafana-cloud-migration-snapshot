@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/grafana/grafana-cloud-migration-snapshot/src/contracts"
 )
 
 type MigrateDataType string
@@ -32,8 +35,11 @@ type MigrateDataRequestItemDTO struct {
 type SnapshotWriter struct {
 	// Folder where files will be written to.
 	folder string
+	// The public and private keys used to encrypt data files.
+	keys contracts.AssymetricKeys
 	// A map from resource type (e.g. dashboard, datasource) to a list of file paths that contain resources of the type.
-	index map[string]*resourceIndex
+	index  map[string]*resourceIndex
+	crypto contracts.Crypto
 }
 
 type resourceIndex struct {
@@ -43,7 +49,7 @@ type resourceIndex struct {
 	filePaths []string
 }
 
-func NewSnapshotWriter(folder string) (writer *SnapshotWriter, err error) {
+func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, folder string) (writer *SnapshotWriter, err error) {
 	if _, err := os.Stat(folder); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("getting folder info: %w", err)
@@ -68,11 +74,12 @@ func NewSnapshotWriter(folder string) (writer *SnapshotWriter, err error) {
 
 	return &SnapshotWriter{
 		folder: folder,
+		keys:   keys,
 		index:  make(map[string]*resourceIndex, 0),
+		crypto: crypto,
 	}, nil
 }
 
-// TODO: make it parallel
 func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequestItemDTO) (err error) {
 	if _, ok := writer.index[resourceType]; !ok {
 		writer.index[resourceType] = &resourceIndex{partitionNumber: 0, filePaths: make([]string, 0)}
@@ -116,15 +123,22 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 		return fmt.Errorf("flushwing gzip writer: %w", err)
 	}
 
-	bufferBytes := buffer.Bytes()
-	checksum, err := computeBufferChecksum(bufferBytes)
+	reader, err := writer.crypto.Encrypt(writer.keys, buffer)
+	if err != nil {
+		return fmt.Errorf("creating reader to encrypt buffer: %w", err)
+	}
+	encryptedBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return fmt.Errorf("reading encrypted bytes: %w", err)
+	}
+	checksum, err := computeBufferChecksum(encryptedBytes)
 	if err != nil {
 		return fmt.Errorf("computing checksum: %w", err)
 	}
 
 	partitionJsonBytes, err := json.Marshal(compressedPartition{
 		Checksum: checksum,
-		Data:     bufferBytes,
+		Data:     encryptedBytes,
 	})
 	if err != nil {
 		return fmt.Errorf("marshalling data with checksum: %w", err)
@@ -144,10 +158,15 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 	return nil
 }
 
-// index is an in memory index mapping resource types to file paths where the file contains a list of resources.
-type index struct {
+// Index is an in memory index mapping resource types to file paths where the file contains a list of resources.
+type Index struct {
+	Version uint16
 	// Checksum is a checksum computed using `Items`.
 	Checksum string `json:"checksum"`
+	// The algorithm used to encrypt data files.
+	EncryptionAlgo string `json:"encryptionAlgo"`
+	// The public key used to encrypt data files.
+	PublicKey []byte `json:"publicKey"`
 	// Items looks like this:
 	// {
 	//   "DATASOURCE": ["tmp/datasource_partition_0.json"]
@@ -182,15 +201,25 @@ func computeBufferChecksum(buffer []byte) (string, error) {
 	return fmt.Sprintf("%x", hash.Sum(nil)), nil
 }
 
-func computeIndexChecksum(index map[string][]string) (string, error) {
-	keys := make([]string, 0, len(index))
-	for key := range index {
+func computeIndexChecksum(index *Index) (string, error) {
+	hash := sha256.New()
+	if err := binary.Write(hash, binary.LittleEndian, index.Version); err != nil {
+		return "", fmt.Errorf("writing index version to hash: %w", err)
+	}
+	if _, err := hash.Write([]byte(index.EncryptionAlgo)); err != nil {
+		return "", fmt.Errorf("writing encryption algo to hash: %w", err)
+	}
+	if _, err := hash.Write([]byte(index.PublicKey)); err != nil {
+		return "", fmt.Errorf("writing public key to hash: %w", err)
+	}
+
+	keys := make([]string, 0, len(index.Items))
+	for key := range index.Items {
 		keys = append(keys, key)
 	}
 	// Sort map keys to ensure the same hash is computed every time.
 	slices.Sort(keys)
 
-	hash := sha256.New()
 	for _, key := range keys {
 		bytesWritten, err := hash.Write([]byte(key))
 		if err != nil {
@@ -200,7 +229,7 @@ func computeIndexChecksum(index map[string][]string) (string, error) {
 			return "", fmt.Errorf("writing key to hash, expected to write %d bytes but wrote %d", len(key), bytesWritten)
 		}
 
-		for _, value := range index[key] {
+		for _, value := range index.Items[key] {
 			bytesWritten, err = hash.Write([]byte(value))
 			if err != nil {
 				return "", fmt.Errorf("writing value to hash :%w", err)
@@ -215,25 +244,29 @@ func computeIndexChecksum(index map[string][]string) (string, error) {
 }
 
 // Writes the in memory index to disk.
-func (writer *SnapshotWriter) Finish() (indexFilePath string, err error) {
+func (writer *SnapshotWriter) Finish(senderPublicKey []byte) (indexFilePath string, err error) {
 	items := make(map[string][]string)
 	for resourceType, resourceIndex := range writer.index {
 		items[resourceType] = resourceIndex.filePaths
 	}
 
-	// TODO: ensure user cannot access data they don't own by uploading an malicious index file
-	checksum, err := computeIndexChecksum(items)
+	index := Index{
+		Version:        1,
+		EncryptionAlgo: writer.crypto.Algo(),
+		PublicKey:      senderPublicKey,
+		Items:          items,
+	}
+	checksum, err := computeIndexChecksum(&index)
 	if err != nil {
 		return "", fmt.Errorf("computing index checksum: %w", err)
 	}
-	index := index{Checksum: checksum, Items: items}
+	index.Checksum = checksum
 
 	bytes, err := json.Marshal(index)
 	if err != nil {
 		return "", fmt.Errorf("json marshalling index: %w", err)
 	}
 
-	// TODO: is using writer.folder safe?
 	indexFilePath = filepath.Join(writer.folder, "index.json")
 	file, err := os.OpenFile(indexFilePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	defer func() {
@@ -255,13 +288,13 @@ func (writer *SnapshotWriter) Finish() (indexFilePath string, err error) {
 }
 
 // ReadIndex reads the index containing the path to the data files.
-func ReadIndex(reader io.Reader) (index, error) {
-	var data index
+func ReadIndex(reader io.Reader) (Index, error) {
+	var data Index
 	if err := json.NewDecoder(reader).Decode(&data); err != nil {
 		return data, fmt.Errorf("reading and decoding snapshot data: %w", err)
 	}
 
-	checksum, err := computeIndexChecksum(data.Items)
+	checksum, err := computeIndexChecksum(&data)
 	if err != nil {
 		return data, fmt.Errorf("computing index checksum: %w", err)
 	}
@@ -272,8 +305,17 @@ func ReadIndex(reader io.Reader) (index, error) {
 	return data, nil
 }
 
+type SnapshotReader struct {
+	keys   contracts.AssymetricKeys
+	crypto contracts.Crypto
+}
+
+func NewSnapshotReader(keys contracts.AssymetricKeys, crypto contracts.Crypto) *SnapshotReader {
+	return &SnapshotReader{keys: keys, crypto: crypto}
+}
+
 // ReadFile reads a file containing a list of resources.
-func ReadFile(reader io.Reader) (partition partition, err error) {
+func (snapshot *SnapshotReader) ReadFile(reader io.Reader) (partition partition, err error) {
 	var data compressedPartition
 	if err := json.NewDecoder(reader).Decode(&data); err != nil {
 		return partition, fmt.Errorf("reading and decoding snapshot partition: %w", err)
@@ -287,7 +329,11 @@ func ReadFile(reader io.Reader) (partition partition, err error) {
 		return partition, fmt.Errorf("partition checksum mismatch: expected=%s got=%s", data.Checksum, checksum)
 	}
 
-	gzipReader, err := gzip.NewReader(bytes.NewReader(data.Data))
+	decriptionReader, err := snapshot.crypto.Decrypt(snapshot.keys, bytes.NewReader(data.Data))
+	if err != nil {
+		return partition, fmt.Errorf("creating decryption reader: %w", err)
+	}
+	gzipReader, err := gzip.NewReader(decriptionReader)
 	if err != nil {
 		return partition, fmt.Errorf("creating gzip reader: %w", err)
 	}

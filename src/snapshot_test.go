@@ -5,14 +5,33 @@ import (
 	"os"
 	"testing"
 
+	cryptoRand "crypto/rand"
+
+	"github.com/grafana/grafana-cloud-migration-snapshot/src/contracts"
+	"github.com/grafana/grafana-cloud-migration-snapshot/src/infra/crypto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/nacl/box"
 )
 
 func TestCreateSnapshot(t *testing.T) {
 	t.Parallel()
 
-	writer, err := NewSnapshotWriter("./tmp")
+	senderPublicKey, senderPrivateKey, err := box.GenerateKey(cryptoRand.Reader)
+	require.NoError(t, err)
+
+	recipientPublicKey, recipientPrivateKey, err := box.GenerateKey(cryptoRand.Reader)
+	require.NoError(t, err)
+
+	nacl := crypto.NewNacl()
+
+	writer, err := NewSnapshotWriter(contracts.AssymetricKeys{
+		Public:  recipientPublicKey[:],
+		Private: senderPrivateKey[:],
+	},
+		nacl,
+		"./tmp",
+	)
 	require.NoError(t, err)
 
 	// Generate random resources.
@@ -28,7 +47,7 @@ func TestCreateSnapshot(t *testing.T) {
 	require.NoError(t, writer.Write(string(DashboardDataType), dashboards))
 
 	// Write the index file.
-	indexFilePath, err := writer.Finish()
+	indexFilePath, err := writer.Finish(senderPublicKey[:])
 	require.NoError(t, err)
 
 	file, err := os.Open(indexFilePath)
@@ -45,7 +64,14 @@ func TestCreateSnapshot(t *testing.T) {
 			file, err := os.Open(filePath)
 			require.NoError(t, err)
 
-			partition, err := ReadFile(file)
+			snapshotReader := NewSnapshotReader(contracts.AssymetricKeys{
+				Public:  senderPublicKey[:],
+				Private: recipientPrivateKey[:],
+			}, nacl,
+			)
+			require.NoError(t, err)
+
+			partition, err := snapshotReader.ReadFile(file)
 			require.NoError(t, err)
 
 			resources[resourceType] = append(resources[resourceType], partition.Items...)
