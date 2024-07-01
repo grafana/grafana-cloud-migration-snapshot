@@ -160,7 +160,7 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 
 // Index is an in memory index mapping resource types to file paths where the file contains a list of resources.
 type Index struct {
-	Version uint16
+	Version uint16 `json:"version"`
 	// Checksum is a checksum computed using `Items`.
 	Checksum string `json:"checksum"`
 	// The algorithm used to encrypt data files.
