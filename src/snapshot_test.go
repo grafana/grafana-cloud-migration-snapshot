@@ -3,6 +3,7 @@ package snapshot
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	cryptoRand "crypto/rand"
@@ -59,9 +60,9 @@ func TestCreateSnapshot(t *testing.T) {
 	resources := make(map[string][]MigrateDataRequestItemDTO)
 
 	// Using the index, read each data file and group the contents by resource type (e.g. dashboards).
-	for resourceType, filePaths := range index.Items {
-		for _, filePath := range filePaths {
-			file, err := os.Open(filePath)
+	for resourceType, fileNames := range index.Items {
+		for _, fileName := range fileNames {
+			file, err := os.Open(filepath.Join(writer.folder, fileName))
 			require.NoError(t, err)
 
 			snapshotReader := NewSnapshotReader(contracts.AssymetricKeys{
