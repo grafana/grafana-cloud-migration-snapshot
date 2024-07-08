@@ -45,8 +45,8 @@ type SnapshotWriter struct {
 type resourceIndex struct {
 	// Number used to name partition files. Starts at 0. Monotonically increasing.
 	partitionNumber uint32
-	// List of file paths that contain resources of a specific type (e.g. dashboard, datasource).
-	filePaths []string
+	// List of file names that contain resources of a specific type (e.g. dashboard, datasource).
+	fileNames []string
 }
 
 func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, folder string) (writer *SnapshotWriter, err error) {
@@ -82,11 +82,12 @@ func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, f
 
 func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequestItemDTO) (err error) {
 	if _, ok := writer.index[resourceType]; !ok {
-		writer.index[resourceType] = &resourceIndex{partitionNumber: 0, filePaths: make([]string, 0)}
+		writer.index[resourceType] = &resourceIndex{partitionNumber: 0, fileNames: make([]string, 0)}
 	}
 	resourceIndex := writer.index[resourceType]
 
-	filepath := filepath.Join(writer.folder, fmt.Sprintf("%s_partition_%d.json", strings.ToLower(resourceType), resourceIndex.partitionNumber))
+	fileName := fmt.Sprintf("%s_partition_%d.json", strings.ToLower(resourceType), resourceIndex.partitionNumber)
+	filepath := filepath.Join(writer.folder, fileName)
 	file, err := os.OpenFile(filepath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return fmt.Errorf("creating/opening partition file: filepath=%s %w", filepath, err)
@@ -153,16 +154,17 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 	}
 
 	resourceIndex.partitionNumber++
-	resourceIndex.filePaths = append(resourceIndex.filePaths, filepath)
+	resourceIndex.fileNames = append(resourceIndex.fileNames, fileName)
 
 	return nil
 }
 
 // Index is an in memory index mapping resource types to file paths where the file contains a list of resources.
 type Index struct {
-	Version uint16 `json:"version"`
-	// Checksum is a checksum computed using `Items`.
+	// Checksum is a checksum computed using the fields in this struct.
 	Checksum string `json:"checksum"`
+	// The index version. Current only version 1 exists.
+	Version uint16 `json:"version"`
 	// The algorithm used to encrypt data files.
 	EncryptionAlgo string `json:"encryptionAlgo"`
 	// The public key used to encrypt data files.
@@ -247,7 +249,7 @@ func computeIndexChecksum(index *Index) (string, error) {
 func (writer *SnapshotWriter) Finish(senderPublicKey []byte) (indexFilePath string, err error) {
 	items := make(map[string][]string)
 	for resourceType, resourceIndex := range writer.index {
-		items[resourceType] = resourceIndex.filePaths
+		items[resourceType] = resourceIndex.fileNames
 	}
 
 	index := Index{
