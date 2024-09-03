@@ -66,18 +66,6 @@ func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, f
 		if err := os.MkdirAll(folder, 0750); err != nil {
 			return nil, fmt.Errorf("creating directory to store snapshot files: %w", err)
 		}
-		folderFile, err := os.Open(folder)
-		if err != nil {
-			return nil, fmt.Errorf("opening directory: path=%s %w", folder, err)
-		}
-		defer func() {
-			if closeErr := folderFile.Close(); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("closing folder file: path=%s %w", folder, closeErr))
-			}
-		}()
-		if err := folderFile.Sync(); err != nil {
-			return nil, fmt.Errorf("syncinf folder: path=%s %w", folder, err)
-		}
 	}
 
 	return &SnapshotWriter{
