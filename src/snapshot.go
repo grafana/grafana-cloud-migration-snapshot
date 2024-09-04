@@ -3,11 +3,11 @@ package snapshot
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -202,7 +202,7 @@ type partition struct {
 }
 
 func computeBufferChecksum(buffer []byte) (string, error) {
-	hash := crc32.NewIEEE()
+	hash := sha256.New()
 	bytesWritten, err := hash.Write(buffer)
 	if err != nil {
 		return "", fmt.Errorf("writing buffer to hash :%w", err)
@@ -214,7 +214,7 @@ func computeBufferChecksum(buffer []byte) (string, error) {
 }
 
 func computeIndexChecksum(index *Index) (string, error) {
-	hash := crc32.NewIEEE()
+	hash := sha256.New()
 	if err := binary.Write(hash, binary.LittleEndian, index.Version); err != nil {
 		return "", fmt.Errorf("writing index version to hash: %w", err)
 	}
