@@ -3,11 +3,11 @@ package snapshot
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -65,18 +65,6 @@ func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, f
 
 		if err := os.MkdirAll(folder, 0750); err != nil {
 			return nil, fmt.Errorf("creating directory to store snapshot files: %w", err)
-		}
-		folderFile, err := os.Open(folder)
-		if err != nil {
-			return nil, fmt.Errorf("opening directory: path=%s %w", folder, err)
-		}
-		defer func() {
-			if closeErr := folderFile.Close(); closeErr != nil {
-				err = errors.Join(err, fmt.Errorf("closing folder file: path=%s %w", folder, closeErr))
-			}
-		}()
-		if err := folderFile.Sync(); err != nil {
-			return nil, fmt.Errorf("syncinf folder: path=%s %w", folder, err)
 		}
 	}
 
@@ -202,7 +190,7 @@ type partition struct {
 }
 
 func computeBufferChecksum(buffer []byte) (string, error) {
-	hash := crc32.NewIEEE()
+	hash := sha256.New()
 	bytesWritten, err := hash.Write(buffer)
 	if err != nil {
 		return "", fmt.Errorf("writing buffer to hash :%w", err)
@@ -214,7 +202,7 @@ func computeBufferChecksum(buffer []byte) (string, error) {
 }
 
 func computeIndexChecksum(index *Index) (string, error) {
-	hash := crc32.NewIEEE()
+	hash := sha256.New()
 	if err := binary.Write(hash, binary.LittleEndian, index.Version); err != nil {
 		return "", fmt.Errorf("writing index version to hash: %w", err)
 	}
