@@ -9,7 +9,6 @@ import (
 
 	cryptoRand "crypto/rand"
 
-	"github.com/google/uuid"
 	"github.com/grafana/grafana-cloud-migration-snapshot/src/contracts"
 	"github.com/grafana/grafana-cloud-migration-snapshot/src/infra/crypto"
 	"github.com/stretchr/testify/assert"
@@ -17,8 +16,10 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
-func tempDir() string {
-	return filepath.Join(os.TempDir(), "grafana-cloud-migration-snapshot", uuid.NewString())
+func tempDir(t *testing.T) string {
+	t.Helper()
+
+	return filepath.Join(t.TempDir(), "grafana-cloud-migration-snapshot")
 }
 
 func TestCreateSnapshot(t *testing.T) {
@@ -37,7 +38,7 @@ func TestCreateSnapshot(t *testing.T) {
 		Private: senderPrivateKey[:],
 	},
 		nacl,
-		tempDir(),
+		tempDir(t),
 	)
 	require.NoError(t, err)
 
@@ -105,7 +106,7 @@ func TestChecksumIsValidated(t *testing.T) {
 	t.Run("data file checksum is validated", func(t *testing.T) {
 		t.Parallel()
 
-		dir := tempDir()
+		dir := tempDir(t)
 
 		writer, err := NewSnapshotWriter(contracts.AssymetricKeys{
 			Public:  recipientPublicKey[:],
@@ -174,7 +175,7 @@ func TestChecksumIsValidated(t *testing.T) {
 			Private: senderPrivateKey[:],
 		},
 			nacl,
-			tempDir(),
+			tempDir(t),
 		)
 		require.NoError(t, err)
 
