@@ -49,10 +49,13 @@ func TestCreateSnapshot(t *testing.T) {
 
 	dashboards := generateItems(string(DashboardDataType), 10_000)
 
+	libraryElements := generateItems(string(LibraryElementDataType), 10_000)
+
 	// Write the resources to the snapshot.
 	require.NoError(t, writer.Write(string(DatasourceDataType), datasources))
 	require.NoError(t, writer.Write(string(FolderDataType), folders))
 	require.NoError(t, writer.Write(string(DashboardDataType), dashboards))
+	require.NoError(t, writer.Write(string(LibraryElementDataType), libraryElements))
 
 	// Write the index file.
 	indexFilePath, err := writer.Finish(FinishInput{SenderPublicKey: senderPublicKey[:], Metadata: []byte("metadata")})
@@ -90,6 +93,7 @@ func TestCreateSnapshot(t *testing.T) {
 	assert.Equal(t, datasources, resources[string(DatasourceDataType)])
 	assert.Equal(t, folders, resources[string(FolderDataType)])
 	assert.Equal(t, dashboards, resources[string(DashboardDataType)])
+	assert.Equal(t, libraryElements, resources[string(LibraryElementDataType)])
 }
 
 func TestChecksumIsValidated(t *testing.T) {
