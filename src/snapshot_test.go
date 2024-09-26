@@ -22,6 +22,11 @@ func tempDir(t *testing.T) string {
 	return filepath.Join(t.TempDir(), "grafana-cloud-migration-snapshot")
 }
 
+type input struct {
+	resourceType MigrateDataType
+	items        []MigrateDataRequestItemDTO
+}
+
 func TestCreateSnapshot(t *testing.T) {
 	t.Parallel()
 
@@ -43,21 +48,30 @@ func TestCreateSnapshot(t *testing.T) {
 	require.NoError(t, err)
 
 	// Generate random resources.
-	datasources := generateItems(string(DatasourceDataType), 10_000)
-
-	folders := generateItems(string(FolderDataType), 10_000)
-
-	dashboards := generateItems(string(DashboardDataType), 10_000)
-
-	libraryElements := generateItems(string(LibraryElementDataType), 10_000)
+	resources := make([]input, 0)
+	for _, resourceType := range []MigrateDataType{
+		DatasourceDataType,
+		FolderDataType,
+		DashboardDataType,
+		LibraryElementDataType,
+		AlertRuleType,
+		ContactPointType,
+		NotificationPolicyType,
+		NotificationTemplateType,
+		MuteTimingType,
+	} {
+		resources = append(resources, input{
+			resourceType: resourceType,
+			items:        generateItems(string(resourceType), 10_000),
+		},
+		)
+	}
 
 	// Write the resources to the snapshot.
-	require.NoError(t, writer.Write(string(DatasourceDataType), datasources))
-	require.NoError(t, writer.Write(string(FolderDataType), folders))
-	require.NoError(t, writer.Write(string(DashboardDataType), dashboards))
-	require.NoError(t, writer.Write(string(LibraryElementDataType), libraryElements))
+	for _, input := range resources {
+		require.NoError(t, writer.Write(string(input.resourceType), input.items))
+	}
 
-	// Write the index file.
 	indexFilePath, err := writer.Finish(FinishInput{SenderPublicKey: senderPublicKey[:], Metadata: []byte("metadata")})
 	require.NoError(t, err)
 
@@ -67,7 +81,7 @@ func TestCreateSnapshot(t *testing.T) {
 	index, err := ReadIndex(file)
 	require.NoError(t, err)
 
-	resources := make(map[string][]MigrateDataRequestItemDTO)
+	resourcesFromSnapshot := make(map[string][]MigrateDataRequestItemDTO)
 
 	// Using the index, read each data file and group the contents by resource type (e.g. dashboards).
 	for resourceType, fileNames := range index.Items {
@@ -85,15 +99,14 @@ func TestCreateSnapshot(t *testing.T) {
 			partition, err := snapshotReader.ReadFile(file)
 			require.NoError(t, err)
 
-			resources[resourceType] = append(resources[resourceType], partition.Items...)
+			resourcesFromSnapshot[resourceType] = append(resourcesFromSnapshot[resourceType], partition.Items...)
 		}
 	}
 
 	// Ensure we got the initial data back.
-	assert.Equal(t, datasources, resources[string(DatasourceDataType)])
-	assert.Equal(t, folders, resources[string(FolderDataType)])
-	assert.Equal(t, dashboards, resources[string(DashboardDataType)])
-	assert.Equal(t, libraryElements, resources[string(LibraryElementDataType)])
+	for _, input := range resources {
+		assert.Equal(t, input.items, resourcesFromSnapshot[string(input.resourceType)])
+	}
 }
 
 func TestChecksumIsValidated(t *testing.T) {
