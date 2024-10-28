@@ -29,6 +29,9 @@ const (
 	NotificationPolicyType   MigrateDataType = "NOTIFICATION_POLICY"
 	NotificationTemplateType MigrateDataType = "NOTIFICATION_TEMPLATE"
 	MuteTimingType           MigrateDataType = "MUTE_TIMING"
+	PluginDataType           MigrateDataType = "PLUGIN"
+	AnnotationDataType       MigrateDataType = "ANNOTATION"
+	ReportDataType           MigrateDataType = "REPORT"
 )
 
 type MigrateDataRequestItemDTO struct {

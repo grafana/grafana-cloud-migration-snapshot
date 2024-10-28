@@ -59,6 +59,9 @@ func TestCreateSnapshot(t *testing.T) {
 		NotificationPolicyType,
 		NotificationTemplateType,
 		MuteTimingType,
+		PluginDataType,
+		AnnotationDataType,
+		ReportDataType,
 	} {
 		resources = append(resources, input{
 			resourceType: resourceType,
