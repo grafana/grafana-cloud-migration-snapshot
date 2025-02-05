@@ -55,6 +55,7 @@ func TestCreateSnapshot(t *testing.T) {
 		DashboardDataType,
 		LibraryElementDataType,
 		AlertRuleType,
+		AlertRuleGroupType,
 		ContactPointType,
 		NotificationPolicyType,
 		NotificationTemplateType,
