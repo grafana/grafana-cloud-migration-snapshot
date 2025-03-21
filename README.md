@@ -1,6 +1,6 @@
 ## Disclaimer
 
-This library is used to support the Grafana Cloud Migration feature. It is subject to change without warning.
+This library is used to support the Grafana Cloud Migration Assistant feature. It is subject to change without warning.
 
 ## License
 
