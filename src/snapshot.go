@@ -169,6 +169,21 @@ func (writer *SnapshotWriter) EncodePartition(items []MigrateDataRequestItemDTO)
 	return out, err
 }
 
+func EncodeIndex(index Index) ([]byte, error) {
+	checksum, err := computeIndexChecksum(&index)
+	if err != nil {
+		return nil, fmt.Errorf("computing index checksum: %w", err)
+	}
+	index.Checksum = checksum
+
+	bytes, err := json.Marshal(index)
+	if err != nil {
+		return nil, fmt.Errorf("json marshalling index: %w", err)
+	}
+
+	return bytes, nil
+}
+
 // Index is an in memory index mapping resource types to file paths where the file contains a list of resources.
 type Index struct {
 	// Checksum is a checksum computed using the fields in this struct.
@@ -264,15 +279,9 @@ func (writer *SnapshotWriter) Finish(input FinishInput) (indexFilePath string, e
 		Metadata:       input.Metadata,
 		Items:          items,
 	}
-	checksum, err := computeIndexChecksum(&index)
+	bytes, err := EncodeIndex(index)
 	if err != nil {
-		return "", fmt.Errorf("computing index checksum: %w", err)
-	}
-	index.Checksum = checksum
-
-	bytes, err := json.Marshal(index)
-	if err != nil {
-		return "", fmt.Errorf("json marshalling index: %w", err)
+		return indexFilePath, fmt.Errorf("encoding index: %w", err)
 	}
 
 	indexFilePath = filepath.Join(writer.folder, "index.json")
