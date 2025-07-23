@@ -68,13 +68,15 @@ type resourceIndex struct {
 }
 
 func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, folder string) (writer *SnapshotWriter, err error) {
-	if _, err := os.Stat(folder); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("getting folder info: %w", err)
-		}
+	if folder != "" {
+		if _, err := os.Stat(folder); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("getting folder info: %w", err)
+			}
 
-		if err := os.MkdirAll(folder, 0750); err != nil {
-			return nil, fmt.Errorf("creating directory to store snapshot files: %w", err)
+			if err := os.MkdirAll(folder, 0750); err != nil {
+				return nil, fmt.Errorf("creating directory to store snapshot files: %w", err)
+			}
 		}
 	}
 
