@@ -100,6 +100,11 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 	if err != nil {
 		return fmt.Errorf("creating/opening partition file: filepath=%s %w", filepath, err)
 	}
+	defer func() {
+		if closeErr := file.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("closing file: %w", closeErr))
+		}
+	}()
 
 	partitionJsonBytes, err := writer.EncodePartition(items)
 	if err != nil {
