@@ -68,13 +68,15 @@ type resourceIndex struct {
 }
 
 func NewSnapshotWriter(keys contracts.AssymetricKeys, crypto contracts.Crypto, folder string) (writer *SnapshotWriter, err error) {
-	if _, err := os.Stat(folder); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("getting folder info: %w", err)
-		}
+	if folder != "" {
+		if _, err := os.Stat(folder); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return nil, fmt.Errorf("getting folder info: %w", err)
+			}
 
-		if err := os.MkdirAll(folder, 0750); err != nil {
-			return nil, fmt.Errorf("creating directory to store snapshot files: %w", err)
+			if err := os.MkdirAll(folder, 0750); err != nil {
+				return nil, fmt.Errorf("creating directory to store snapshot files: %w", err)
+			}
 		}
 	}
 
@@ -104,51 +106,9 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 		}
 	}()
 
-	buffer := bytes.NewBuffer(make([]byte, 0))
-
-	gzipWriter := gzip.NewWriter(buffer)
-	defer func() {
-		if closeErr := gzipWriter.Close(); closeErr != nil {
-			err = errors.Join(err, fmt.Errorf("closing gzip writer: %w", closeErr))
-		}
-	}()
-
-	itemsJsonBytes, err := json.Marshal(&items)
+	partitionJsonBytes, err := writer.EncodePartition(items)
 	if err != nil {
-		return fmt.Errorf("marshalling migration items: %w", err)
-	}
-
-	bytesWritten, err := gzipWriter.Write(itemsJsonBytes)
-	if err != nil {
-		return fmt.Errorf("writing buffer to gzip writer: bytesWritten=%d %w", bytesWritten, err)
-	}
-	if bytesWritten != len(itemsJsonBytes) {
-		return fmt.Errorf("writing buffer to gzip writer failed, unable to write every byte: bytesWritten=%d expectedBytesWritten=%d", bytesWritten, len(itemsJsonBytes))
-	}
-
-	if err := gzipWriter.Flush(); err != nil {
-		return fmt.Errorf("flushwing gzip writer: %w", err)
-	}
-
-	reader, err := writer.crypto.Encrypt(writer.keys, buffer)
-	if err != nil {
-		return fmt.Errorf("creating reader to encrypt buffer: %w", err)
-	}
-	encryptedBytes, err := io.ReadAll(reader)
-	if err != nil {
-		return fmt.Errorf("reading encrypted bytes: %w", err)
-	}
-	checksum, err := computeBufferChecksum(encryptedBytes)
-	if err != nil {
-		return fmt.Errorf("computing checksum: %w", err)
-	}
-
-	partitionJsonBytes, err := json.Marshal(compressedPartition{
-		Checksum: checksum,
-		Data:     encryptedBytes,
-	})
-	if err != nil {
-		return fmt.Errorf("marshalling data with checksum: %w", err)
+		return fmt.Errorf("encoding partition: %w", err)
 	}
 
 	if _, err := file.Write(partitionJsonBytes); err != nil {
@@ -163,6 +123,72 @@ func (writer *SnapshotWriter) Write(resourceType string, items []MigrateDataRequ
 	resourceIndex.fileNames = append(resourceIndex.fileNames, fileName)
 
 	return nil
+}
+
+func (writer *SnapshotWriter) EncodePartition(items []MigrateDataRequestItemDTO) (out []byte, err error) {
+	buffer := bytes.NewBuffer(make([]byte, 0))
+
+	gzipWriter := gzip.NewWriter(buffer)
+	defer func() {
+		if closeErr := gzipWriter.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("closing gzip writer: %w", closeErr))
+		}
+	}()
+
+	itemsJsonBytes, err := json.Marshal(&items)
+	if err != nil {
+		return out, fmt.Errorf("marshalling migration items: %w", err)
+	}
+
+	bytesWritten, err := gzipWriter.Write(itemsJsonBytes)
+	if err != nil {
+		return out, fmt.Errorf("writing buffer to gzip writer: bytesWritten=%d %w", bytesWritten, err)
+	}
+	if bytesWritten != len(itemsJsonBytes) {
+		return out, fmt.Errorf("writing buffer to gzip writer failed, unable to write every byte: bytesWritten=%d expectedBytesWritten=%d", bytesWritten, len(itemsJsonBytes))
+	}
+
+	if err := gzipWriter.Flush(); err != nil {
+		return out, fmt.Errorf("flushing gzip writer: %w", err)
+	}
+
+	reader, err := writer.crypto.Encrypt(writer.keys, buffer)
+	if err != nil {
+		return out, fmt.Errorf("creating reader to encrypt buffer: %w", err)
+	}
+	encryptedBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return out, fmt.Errorf("reading encrypted bytes: %w", err)
+	}
+	checksum, err := computeBufferChecksum(encryptedBytes)
+	if err != nil {
+		return out, fmt.Errorf("computing checksum: %w", err)
+	}
+
+	out, err = json.Marshal(compressedPartition{
+		Checksum: checksum,
+		Data:     encryptedBytes,
+	})
+	if err != nil {
+		return out, fmt.Errorf("marshalling data with checksum: %w", err)
+	}
+
+	return out, err
+}
+
+func EncodeIndex(index Index) ([]byte, error) {
+	checksum, err := computeIndexChecksum(&index)
+	if err != nil {
+		return nil, fmt.Errorf("computing index checksum: %w", err)
+	}
+	index.Checksum = checksum
+
+	bytes, err := json.Marshal(index)
+	if err != nil {
+		return nil, fmt.Errorf("json marshalling index: %w", err)
+	}
+
+	return bytes, nil
 }
 
 // Index is an in memory index mapping resource types to file paths where the file contains a list of resources.
@@ -260,15 +286,9 @@ func (writer *SnapshotWriter) Finish(input FinishInput) (indexFilePath string, e
 		Metadata:       input.Metadata,
 		Items:          items,
 	}
-	checksum, err := computeIndexChecksum(&index)
+	bytes, err := EncodeIndex(index)
 	if err != nil {
-		return "", fmt.Errorf("computing index checksum: %w", err)
-	}
-	index.Checksum = checksum
-
-	bytes, err := json.Marshal(index)
-	if err != nil {
-		return "", fmt.Errorf("json marshalling index: %w", err)
+		return indexFilePath, fmt.Errorf("encoding index: %w", err)
 	}
 
 	indexFilePath = filepath.Join(writer.folder, "index.json")
