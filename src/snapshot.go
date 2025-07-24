@@ -149,7 +149,7 @@ func (writer *SnapshotWriter) EncodePartition(items []MigrateDataRequestItemDTO)
 	}
 
 	if err := gzipWriter.Flush(); err != nil {
-		return out, fmt.Errorf("flushwing gzip writer: %w", err)
+		return out, fmt.Errorf("flushing gzip writer: %w", err)
 	}
 
 	reader, err := writer.crypto.Encrypt(writer.keys, buffer)
