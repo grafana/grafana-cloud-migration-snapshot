@@ -2,7 +2,7 @@ module github.com/grafana/grafana-cloud-migration-snapshot
 
 go 1.23.0
 
-toolchain go1.24.2
+toolchain go1.25.4
 
 require (
 	github.com/stretchr/testify v1.10.0
