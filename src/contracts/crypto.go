@@ -13,4 +13,5 @@ type Crypto interface {
 	Algo() string
 	Encrypt(keys AssymetricKeys, reader io.Reader) (io.Reader, error)
 	Decrypt(keys AssymetricKeys, reader io.Reader) (io.Reader, error)
+	GenerateKeys() (AssymetricKeys, error)
 }

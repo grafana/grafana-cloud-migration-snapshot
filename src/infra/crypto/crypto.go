@@ -55,3 +55,15 @@ func (nacl Nacl) Decrypt(keys contracts.AssymetricKeys, reader io.Reader) (io.Re
 
 	return bytes.NewReader(decrypted), nil
 }
+
+func (nacl Nacl) GenerateKeys() (contracts.AssymetricKeys, error) {
+	publicKey, privateKey, err := box.GenerateKey(cryptoRand.Reader)
+	if err != nil {
+		return contracts.AssymetricKeys{}, fmt.Errorf("nacl: generating public and private key: %w", err)
+	}
+
+	return contracts.AssymetricKeys{
+		Public:  publicKey[:],
+		Private: privateKey[:],
+	}, nil
+}
