@@ -9,37 +9,36 @@ import (
 	"github.com/grafana/grafana-cloud-migration-snapshot/src/contracts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/nacl/box"
 )
 
 func TestNacl(t *testing.T) {
 	t.Parallel()
 
-	senderPublicKey, senderPrivateKey, err := box.GenerateKey(cryptoRand.Reader)
+	nacl := NewNacl()
+
+	sender, err := nacl.GenerateKeys()
 	require.NoError(t, err)
 
-	recipientPublicKey, recipientPrivateKey, err := box.GenerateKey(cryptoRand.Reader)
+	recipient, err := nacl.GenerateKeys()
 	require.NoError(t, err)
 
 	msg := "hello world"
-
-	nacl := NewNacl()
 
 	var nonce [24]byte
 	_, err = io.ReadFull(cryptoRand.Reader, nonce[:])
 	require.NoError(t, err)
 
 	reader, err := nacl.Encrypt(contracts.AssymetricKeys{
-		Public:  recipientPublicKey[:],
-		Private: senderPrivateKey[:],
+		Public:  recipient.Public,
+		Private: sender.Private,
 	},
 		strings.NewReader(msg),
 	)
 	require.NoError(t, err)
 
 	reader, err = nacl.Decrypt(contracts.AssymetricKeys{
-		Public:  senderPublicKey[:],
-		Private: recipientPrivateKey[:],
+		Public:  sender.Public,
+		Private: recipient.Private,
 	},
 		reader,
 	)
