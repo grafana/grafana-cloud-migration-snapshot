@@ -19,7 +19,7 @@ func NewHpke() Hpke {
 }
 
 func (Hpke) Algo() string {
-	return "hpke-p521-shake256-aes256gcm"
+	return "hpke-p521-hkdfsha512-aes256gcm"
 }
 
 func (h Hpke) Encrypt(keys contracts.AssymetricKeys, reader io.Reader) (io.Reader, error) {
@@ -81,6 +81,6 @@ func (h Hpke) GenerateKeys() (contracts.AssymetricKeys, error) {
 
 func (h Hpke) kem() hpke.KEM { return hpke.DHKEM(ecdh.P521()) }
 
-func (h Hpke) kdf() hpke.KDF { return hpke.SHAKE256() }
+func (h Hpke) kdf() hpke.KDF { return hpke.HKDFSHA512() }
 
 func (h Hpke) aead() hpke.AEAD { return hpke.AES256GCM() }
