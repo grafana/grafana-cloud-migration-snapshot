@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"github.com/grafana/grafana-cloud-migration-snapshot/src/contracts"
+	"github.com/grafana/grafana-cloud-migration-snapshot/src/ioext"
+	"github.com/grafana/grafana-cloud-migration-snapshot/src/memory"
 )
 
 type MigrateDataType string
@@ -341,7 +343,7 @@ func NewSnapshotReader(keys contracts.AssymetricKeys, crypto contracts.Crypto) *
 // ReadFile reads a file containing a list of resources.
 func (snapshot *SnapshotReader) ReadFile(reader io.Reader) (partition partition, err error) {
 	var data compressedPartition
-	if err := json.NewDecoder(reader).Decode(&data); err != nil {
+	if err := json.NewDecoder(ioext.NewWithSizeLimitReader(reader, 16*memory.MiB)).Decode(&data); err != nil {
 		return partition, fmt.Errorf("reading and decoding snapshot partition: %w", err)
 	}
 
@@ -357,7 +359,7 @@ func (snapshot *SnapshotReader) ReadFile(reader io.Reader) (partition partition,
 	if err != nil {
 		return partition, fmt.Errorf("creating decryption reader: %w", err)
 	}
-	gzipReader, err := gzip.NewReader(decriptionReader)
+	gzipReader, err := gzip.NewReader(ioext.NewWithSizeLimitReader(decriptionReader, 16*memory.MiB))
 	if err != nil {
 		return partition, fmt.Errorf("creating gzip reader: %w", err)
 	}
