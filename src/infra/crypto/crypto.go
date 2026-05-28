@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/grafana/grafana-cloud-migration-snapshot/src/contracts"
 	"golang.org/x/crypto/nacl/box"
 )
+
+var ErrEncryptedPayloadLengthTooSmall = errors.New("encrypted payload length is too small")
 
 type Nacl struct {
 }
@@ -47,7 +50,11 @@ func (nacl Nacl) Decrypt(keys contracts.AssymetricKeys, reader io.Reader) (io.Re
 	}
 
 	var decryptNonce [24]byte
+	if len(encryptedPayload) < len(decryptNonce) {
+		return nil, fmt.Errorf("%w: length=%+v expected=%+v", ErrEncryptedPayloadLengthTooSmall, len(encryptedPayload), len(decryptNonce))
+	}
 	copy(decryptNonce[:], encryptedPayload[:24])
+
 	decrypted, ok := box.Open(nil, encryptedPayload[24:], &decryptNonce, (*[32]byte)(keys.Public), (*[32]byte)(keys.Private))
 	if !ok {
 		return nil, fmt.Errorf("decrypting payload failed")
